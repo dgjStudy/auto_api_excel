@@ -11,7 +11,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 
-# 한글 폰트 설정 (Windows 기준 맑은 고딕)
+# 한글 폰트 설정 (Windows 기준 맑은 고딕) dddddd
 plt.rcParams['font.family'] = 'Malgun Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
