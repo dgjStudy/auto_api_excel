@@ -20,6 +20,31 @@ plt.rcParams['axes.unicode_minus'] = False
 # .env 파일 로드
 load_dotenv()
 
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip = None
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        x, y, cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 20
+        self.tooltip = tk.Toplevel(self.widget)
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(self.tooltip, text=self.text, justify='left',
+                         background="#ffffe0", relief='solid', borderwidth=1,
+                         font=("", 9))
+        label.pack(ipadx=3, ipady=3)
+
+    def leave(self, event=None):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+
 class UniversalApiApp:
     def __init__(self, root):
         self.root = root
@@ -38,22 +63,45 @@ class UniversalApiApp:
         sample_frame.pack(fill=tk.X, padx=10, pady=5)
         
         ttk.Label(sample_frame, text="샘플 URL:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        
+        lbl_sample_help = ttk.Label(sample_frame, text="❓", foreground="blue", cursor="hand2")
+        lbl_sample_help.grid(row=0, column=1, sticky=tk.W, padx=(0, 5))
+        ToolTip(lbl_sample_help, "공공데이터 포털에서 제공하는 '전체 요청 주소(Request URL)'입니다.\n예: http://apis.data.go.kr/.../get?serviceKey=인증키&pageNo=1...")
+        
         self.entry_sample_url = ttk.Entry(sample_frame, width=80)
-        self.entry_sample_url.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=2)
+        self.entry_sample_url.grid(row=0, column=2, sticky=tk.EW, padx=5, pady=2)
+        
+        # 이전 URL 불러오기
+        if os.path.exists(".last_url"):
+            try:
+                with open(".last_url", "r", encoding="utf-8") as f:
+                    last_url = f.read().strip()
+                    if last_url:
+                        self.entry_sample_url.insert(0, last_url)
+            except Exception:
+                pass
         
         btn_analyze = ttk.Button(sample_frame, text="URL 분석", command=self.on_analyze_url)
-        btn_analyze.grid(row=0, column=2, padx=5, pady=2)
+        btn_analyze.grid(row=0, column=3, padx=5, pady=2)
         
-        sample_frame.columnconfigure(1, weight=1)
+        btn_clear = ttk.Button(sample_frame, text="초기화", command=self.on_clear_url)
+        btn_clear.grid(row=0, column=4, padx=5, pady=2)
+        
+        sample_frame.columnconfigure(2, weight=1)
         
         # 2. API 엔드포인트 및 파라미터 프레임
         self.api_frame = ttk.LabelFrame(self.root, text="2. API 설정 및 파라미터 (동적 추출)", padding="10")
         self.api_frame.pack(fill=tk.X, padx=10, pady=5)
         
         ttk.Label(self.api_frame, text="Base URL:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        
+        lbl_base_help = ttk.Label(self.api_frame, text="❓", foreground="blue", cursor="hand2")
+        lbl_base_help.grid(row=0, column=1, sticky=tk.W, padx=(0, 5))
+        ToolTip(lbl_base_help, "파라미터(조건값)가 붙기 전의 '기본 API 주소(API 엔드포인트)'입니다.\n샘플 URL에서 물음표(?) 바로 앞까지의 주소에 해당합니다.")
+
         self.entry_base_url = ttk.Entry(self.api_frame, width=80)
-        self.entry_base_url.grid(row=0, column=1, sticky=tk.EW, padx=5, pady=2, columnspan=3)
-        self.api_frame.columnconfigure(1, weight=1)
+        self.entry_base_url.grid(row=0, column=2, sticky=tk.EW, padx=5, pady=2, columnspan=2)
+        self.api_frame.columnconfigure(2, weight=1)
         
         # 파라미터 폼이 동적으로 배치될 내부 프레임
         self.params_container = ttk.Frame(self.api_frame)
@@ -96,11 +144,31 @@ class UniversalApiApp:
         
         self.tree.bind("<Double-1>", self.on_row_double_click)
         
+    def on_clear_url(self):
+        self.entry_sample_url.delete(0, tk.END)
+        self.entry_base_url.delete(0, tk.END)
+        for child in self.params_container.winfo_children():
+            child.destroy()
+        self.param_entries.clear()
+        self.status_var.set("URL과 파라미터가 초기화되었습니다.")
+        if os.path.exists(".last_url"):
+            try:
+                os.remove(".last_url")
+            except Exception:
+                pass
+
     def on_analyze_url(self):
         sample_url = self.entry_sample_url.get().strip()
         if not sample_url:
             messagebox.showwarning("경고", "샘플 URL을 입력해 주세요.")
             return
+            
+        # 분석 시 파일에 저장 (다음 실행 때 불러오기 위함)
+        try:
+            with open(".last_url", "w", encoding="utf-8") as f:
+                f.write(sample_url)
+        except Exception:
+            pass
             
         base_url, params = parse_sample_url(sample_url)
         
@@ -237,11 +305,31 @@ class UniversalApiApp:
         if self.current_df is None or self.current_df.empty:
             return
             
+        import datetime
+        import re
+        from urllib.parse import urlparse
+        
+        base_url = self.entry_base_url.get().strip()
+        default_name = "api_data"
+        if base_url:
+            parsed = urlparse(base_url)
+            domain = parsed.netloc
+            path_parts = [p for p in parsed.path.split('/') if p]
+            last_path = path_parts[-1] if path_parts else ""
+            
+            parts = [p for p in [domain, last_path] if p]
+            if parts:
+                raw_name = "_".join(parts)
+                default_name = re.sub(r'[\\/*?:"<>|]', '_', raw_name)
+                
+        date_str = datetime.datetime.now().strftime("%Y%m%d")
+        initial_filename = f"{default_name}_{date_str}.xlsx"
+            
         file_path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel Files", "*.xlsx"), ("CSV Files", "*.csv"), ("All Files", "*.*")],
             title="데이터 저장",
-            initialfile="api_data_export.xlsx"
+            initialfile=initial_filename
         )
         
         if file_path:
@@ -286,12 +374,22 @@ class UniversalApiApp:
         
         if num_cols:
             target_col = num_cols[0]
-            df[target_col].dropna().head(30).plot(kind='bar', ax=ax, color='skyblue')
-            ax.set_title(f"수치 항목 분포 ({target_col})")
+            plot_data = df[target_col].dropna().head(30)
+            if not plot_data.empty:
+                plot_data.plot(kind='bar', ax=ax, color='skyblue')
+                ax.set_title(f"수치 항목 분포 ({target_col})")
+            else:
+                ax.text(0.5, 0.5, "유효한 수치 데이터가 없습니다.", ha='center', va='center', fontdict={'size':12})
+                ax.set_title(f"수치 항목 분포 ({target_col}) - 데이터 없음")
         else:
             first_col = df.columns[0]
-            df[first_col].value_counts().head(10).plot(kind='bar', ax=ax, color='lightgreen')
-            ax.set_title(f"상위 빈도 항목 분포 ({first_col})")
+            plot_data = df[first_col].value_counts().head(10)
+            if not plot_data.empty:
+                plot_data.plot(kind='bar', ax=ax, color='lightgreen')
+                ax.set_title(f"상위 빈도 항목 분포 ({first_col})")
+            else:
+                ax.text(0.5, 0.5, "유효한 데이터가 없습니다.", ha='center', va='center', fontdict={'size':12})
+                ax.set_title(f"상위 빈도 항목 분포 ({first_col}) - 데이터 없음")
             
         fig.tight_layout()
         canvas = FigureCanvasTkAgg(fig, master=stat_win)
