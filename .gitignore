@@ -1,1 +1,10 @@
 .env
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Python cache & environment
+__pycache__/
+*.pyc
