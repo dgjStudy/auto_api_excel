@@ -1,4 +1,10 @@
 .env
+.last_url
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
 
 # PyInstaller build artifacts
 build/
