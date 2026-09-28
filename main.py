@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 from services.api_client import parse_sample_url, fetch_api_data
 from services.data_parser import flatten_to_dataframe
 
-# CustomTkinter 기본 설정 (기본 테마: 블루, 모드: 시스템/dark)
-ctk.set_appearance_mode("System")
+# CustomTkinter 기본 설정 (기본 테마: 블루, 모드: Dark)
+ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 # 한글 폰트 설정 (Windows 기준 맑은 고딕)
@@ -75,7 +75,17 @@ class UniversalApiApp(ctk.CTk):
         sample_frame.pack(fill=tk.X, padx=15, pady=8)
         
         lbl_title1 = ctk.CTkLabel(sample_frame, text="1. 샘플 URL 입력 (자동 분석)", font=("Malgun Gothic", 13, "bold"))
-        lbl_title1.grid(row=0, column=0, columnspan=5, sticky=tk.W, padx=12, pady=(8, 4))
+        lbl_title1.grid(row=0, column=0, columnspan=3, sticky=tk.W, padx=12, pady=(8, 4))
+
+        # 테마(다크/화이트 모드) 전환 버튼 추가
+        self.theme_segmented = ctk.CTkSegmentedButton(
+            sample_frame, 
+            values=["🌙 다크 모드", "☀️ 화이트 모드"], 
+            command=self.change_theme,
+            font=("Malgun Gothic", 11, "bold")
+        )
+        self.theme_segmented.set("🌙 다크 모드")
+        self.theme_segmented.grid(row=0, column=4, sticky=tk.E, padx=(5, 12), pady=(8, 4))
 
         lbl_sample = ctk.CTkLabel(sample_frame, text="샘플 URL:", font=("Malgun Gothic", 12))
         lbl_sample.grid(row=1, column=0, sticky=tk.W, padx=(12, 4), pady=6)
@@ -153,23 +163,6 @@ class UniversalApiApp(ctk.CTk):
         data_frame = ctk.CTkFrame(self, corner_radius=10)
         data_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(8, 15))
         
-        # Treeview 구식 디자인 커스텀 스타일링
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("Treeview", 
-                        background="#2A2D32", 
-                        foreground="#E5E7EB", 
-                        fieldbackground="#2A2D32", 
-                        rowheight=28,
-                        font=("Malgun Gothic", 10))
-        style.configure("Treeview.Heading", 
-                        background="#1F2937", 
-                        foreground="#F9FAFB", 
-                        relief="flat", 
-                        font=("Malgun Gothic", 11, "bold"))
-        style.map("Treeview", background=[('selected', '#3B82F6')], foreground=[('selected', '#FFFFFF')])
-        style.map("Treeview.Heading", background=[('active', '#374151')])
-        
         tree_scroll_y = ttk.Scrollbar(data_frame)
         tree_scroll_y.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 5), pady=5)
         tree_scroll_x = ttk.Scrollbar(data_frame, orient='horizontal')
@@ -182,6 +175,49 @@ class UniversalApiApp(ctk.CTk):
         tree_scroll_x.config(command=self.tree.xview)
         
         self.tree.bind("<Double-1>", self.on_row_double_click)
+
+        # 초기 Treeview 스타일 적용
+        self.update_treeview_style("Dark")
+
+    def change_theme(self, choice_text):
+        if "다크" in choice_text or "Dark" in choice_text:
+            ctk.set_appearance_mode("Dark")
+            self.update_treeview_style("Dark")
+        else:
+            ctk.set_appearance_mode("Light")
+            self.update_treeview_style("Light")
+
+    def update_treeview_style(self, mode):
+        style = ttk.Style()
+        style.theme_use("clam")
+        if mode == "Dark":
+            style.configure("Treeview", 
+                            background="#2A2D32", 
+                            foreground="#E5E7EB", 
+                            fieldbackground="#2A2D32", 
+                            rowheight=28,
+                            font=("Malgun Gothic", 10))
+            style.configure("Treeview.Heading", 
+                            background="#1F2937", 
+                            foreground="#F9FAFB", 
+                            relief="flat", 
+                            font=("Malgun Gothic", 11, "bold"))
+            style.map("Treeview", background=[('selected', '#3B82F6')], foreground=[('selected', '#FFFFFF')])
+            style.map("Treeview.Heading", background=[('active', '#374151')])
+        else:
+            style.configure("Treeview", 
+                            background="#FFFFFF", 
+                            foreground="#111827", 
+                            fieldbackground="#FFFFFF", 
+                            rowheight=28,
+                            font=("Malgun Gothic", 10))
+            style.configure("Treeview.Heading", 
+                            background="#E5E7EB", 
+                            foreground="#111827", 
+                            relief="flat", 
+                            font=("Malgun Gothic", 11, "bold"))
+            style.map("Treeview", background=[('selected', '#2563EB')], foreground=[('selected', '#FFFFFF')])
+            style.map("Treeview.Heading", background=[('active', '#D1D5DB')])
         
     def on_clear_url(self):
         self.entry_sample_url.delete(0, tk.END)
@@ -422,30 +458,43 @@ class UniversalApiApp(ctk.CTk):
         ctk.CTkLabel(summary_frame, text=f"총 수집 레코드: {len(df)} 건", font=("Malgun Gothic", 12, "bold")).pack(anchor=tk.W, padx=12, pady=(8, 2))
         ctk.CTkLabel(summary_frame, text=f"전체 필드(열) 수: {len(df.columns)} 개", font=("Malgun Gothic", 11)).pack(anchor=tk.W, padx=12, pady=(0, 8))
         
-        # 다크모드 차트 스타일
-        plt.style.use('dark_background')
-        fig = Figure(figsize=(6, 4), dpi=100, facecolor='#1D1E1F')
+        # 테마에 따른 차트 스타일 설정
+        current_mode = ctk.get_appearance_mode()
+        is_dark = current_mode.lower() == "dark"
+        
+        bg_color = '#1D1E1F' if is_dark else '#FFFFFF'
+        text_color = '#FFFFFF' if is_dark else '#111827'
+        
+        if is_dark:
+            plt.style.use('dark_background')
+        else:
+            plt.style.use('default')
+            
+        fig = Figure(figsize=(6, 4), dpi=100, facecolor=bg_color)
         ax = fig.add_subplot(111)
-        ax.set_facecolor('#1D1E1F')
+        ax.set_facecolor(bg_color)
+        ax.tick_params(colors=text_color)
+        for spine in ax.spines.values():
+            spine.set_color(text_color)
         
         if num_cols:
             target_col = num_cols[0]
             plot_data = df[target_col].dropna().head(30)
             if not plot_data.empty:
                 plot_data.plot(kind='bar', ax=ax, color='#3B82F6')
-                ax.set_title(f"수치 항목 분포 ({target_col})", color="white", fontproperties="Malgun Gothic")
+                ax.set_title(f"수치 항목 분포 ({target_col})", color=text_color, fontproperties="Malgun Gothic")
             else:
-                ax.text(0.5, 0.5, "유효한 수치 데이터가 없습니다.", ha='center', va='center', fontdict={'size':12}, color="white")
-                ax.set_title(f"수치 항목 분포 ({target_col}) - 데이터 없음", color="white", fontproperties="Malgun Gothic")
+                ax.text(0.5, 0.5, "유효한 수치 데이터가 없습니다.", ha='center', va='center', fontdict={'size':12}, color=text_color)
+                ax.set_title(f"수치 항목 분포 ({target_col}) - 데이터 없음", color=text_color, fontproperties="Malgun Gothic")
         else:
             first_col = df.columns[0]
             plot_data = df[first_col].value_counts().head(10)
             if not plot_data.empty:
                 plot_data.plot(kind='bar', ax=ax, color='#10B981')
-                ax.set_title(f"상위 빈도 항목 분포 ({first_col})", color="white", fontproperties="Malgun Gothic")
+                ax.set_title(f"상위 빈도 항목 분포 ({first_col})", color=text_color, fontproperties="Malgun Gothic")
             else:
-                ax.text(0.5, 0.5, "유효한 데이터가 없습니다.", ha='center', va='center', fontdict={'size':12}, color="white")
-                ax.set_title(f"상위 빈도 항목 분포 ({first_col}) - 데이터 없음", color="white", fontproperties="Malgun Gothic")
+                ax.text(0.5, 0.5, "유효한 데이터가 없습니다.", ha='center', va='center', fontdict={'size':12}, color=text_color)
+                ax.set_title(f"상위 빈도 항목 분포 ({first_col}) - 데이터 없음", color=text_color, fontproperties="Malgun Gothic")
             
         fig.tight_layout()
         canvas = FigureCanvasTkAgg(fig, master=stat_win)
