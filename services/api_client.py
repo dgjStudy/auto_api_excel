@@ -51,3 +51,42 @@ def fetch_api_data(base_url, params, headers=None):
         return response.text, None
     except requests.exceptions.RequestException as e:
         return None, f"API 호출 중 네트워크 예외 발생:\n{e}"
+
+def fetch_all_pages(base_url, params, total_count, num_of_rows=10, max_pages=50, progress_callback=None):
+    """
+    totalCount 기반으로 전체 페이지 데이터를 순차 호출하여 텍스트 리스트로 수집합니다.
+    """
+    import math
+    page_key = "pageNo"
+    for k in params.keys():
+        if k.lower() in ["pageno", "page", "pageindex"]:
+            page_key = k
+            break
+            
+    rows_key = "numOfRows"
+    for k in params.keys():
+        if k.lower() in ["numofrows", "rows", "pagesize", "display"]:
+            rows_key = k
+            break
+            
+    total_pages = math.ceil(total_count / float(num_of_rows))
+    actual_pages = min(total_pages, max_pages)
+    
+    raw_responses = []
+    
+    for current_p in range(1, actual_pages + 1):
+        if progress_callback:
+            progress_callback(current_p, actual_pages)
+            
+        page_params = params.copy()
+        page_params[page_key] = str(current_p)
+        page_params[rows_key] = str(num_of_rows)
+        
+        raw_text, err = fetch_api_data(base_url, page_params)
+        if err:
+            break
+        if raw_text:
+            raw_responses.append(raw_text)
+            
+    return raw_responses, None
+

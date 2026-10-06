@@ -5,33 +5,38 @@ from tkinter import ttk, messagebox, filedialog
 import customtkinter as ctk
 import pandas as pd
 
-from services.api_client import parse_sample_url, fetch_api_data
-from services.data_parser import flatten_to_dataframe
+from services.api_client import parse_sample_url, fetch_api_data, fetch_all_pages
+from services.data_parser import flatten_to_dataframe, extract_meta_info, flatten_multiple_to_dataframe
+from services.excel_exporter import save_styled_excel
+from services.history_manager import load_history, save_bookmark, delete_bookmark
 
 from ui.components.tooltip import ToolTip
 from ui.theme import apply_treeview_style
 from ui.popups.detail_popup import DetailPopup
 from ui.popups.stats_popup import StatsPopup
+from ui.popups.column_mapping_popup import ColumnMappingPopup
 
 class UniversalApiApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("범용 API 데이터 수집 및 엑셀 변환기")
-        self.geometry("1020x760")
-        self.minsize(900, 650)
+        self.title("범용 API 데이터 수집 및 엑셀 변환기 v1.1.0")
+        self.geometry("1060x780")
+        self.minsize(940, 680)
         
         # 저장용 데이터
         self.current_df = None
         self.param_entries = {}  # {param_key: entry_widget}
+        self.detected_meta = {}
         
         self.setup_ui()
+        self.refresh_bookmarks_combo()
         
     def setup_ui(self):
         # 1. 샘플 URL 입력 프레임
         sample_frame = ctk.CTkFrame(self, corner_radius=10)
         sample_frame.pack(fill=tk.X, padx=15, pady=(8, 4))
         
-        lbl_title1 = ctk.CTkLabel(sample_frame, text="1. 샘플 URL 입력 (자동 분석)", font=("Malgun Gothic", 13, "bold"))
+        lbl_title1 = ctk.CTkLabel(sample_frame, text="1. 샘플 URL 입력 및 즐겨찾기", font=("Malgun Gothic", 13, "bold"))
         lbl_title1.grid(row=0, column=0, columnspan=3, sticky=tk.W, padx=12, pady=(6, 2))
 
         # 테마(다크/화이트 모드) 전환 버튼
@@ -42,17 +47,34 @@ class UniversalApiApp(ctk.CTk):
             font=("Malgun Gothic", 11, "bold")
         )
         self.theme_segmented.set("🌙 다크 모드")
-        self.theme_segmented.grid(row=0, column=4, sticky=tk.E, padx=(5, 12), pady=(6, 2))
+        self.theme_segmented.grid(row=0, column=5, sticky=tk.E, padx=(5, 12), pady=(6, 2))
+
+        # 즐겨찾기 메뉴
+        lbl_bookmark = ctk.CTkLabel(sample_frame, text="⭐ 즐겨찾기:", font=("Malgun Gothic", 11, "bold"))
+        lbl_bookmark.grid(row=1, column=0, sticky=tk.W, padx=(12, 2), pady=2)
+
+        self.cmb_bookmark = ctk.CTkComboBox(
+            sample_frame, 
+            values=["저장된 API 선택..."], 
+            width=220,
+            command=self.on_bookmark_selected,
+            font=("Malgun Gothic", 11)
+        )
+        self.cmb_bookmark.set("저장된 API 선택...")
+        self.cmb_bookmark.grid(row=1, column=2, sticky=tk.W, padx=2, pady=2)
+
+        btn_save_bm = ctk.CTkButton(sample_frame, text="⭐ 등록", width=55, fg_color="#F59E0B", hover_color="#D97706", command=self.on_add_bookmark, font=("Malgun Gothic", 11, "bold"))
+        btn_save_bm.grid(row=1, column=3, sticky=tk.W, padx=2, pady=2)
 
         lbl_sample = ctk.CTkLabel(sample_frame, text="샘플 URL:", font=("Malgun Gothic", 12))
-        lbl_sample.grid(row=1, column=0, sticky=tk.W, padx=(12, 4), pady=4)
+        lbl_sample.grid(row=2, column=0, sticky=tk.W, padx=(12, 4), pady=4)
         
         lbl_sample_help = ctk.CTkLabel(sample_frame, text="❓", text_color="#3B82F6", cursor="hand2", font=("Malgun Gothic", 13, "bold"))
-        lbl_sample_help.grid(row=1, column=1, sticky=tk.W, padx=(0, 8))
-        ToolTip(lbl_sample_help, "공공데이터 포털에서 제공하는 '전체 요청 주소(Request URL)'입니다.\n예: http://apis.data.go.kr/.../get?serviceKey=인증키&pageNo=1...")
+        lbl_sample_help.grid(row=2, column=1, sticky=tk.W, padx=(0, 8))
+        ToolTip(lbl_sample_help, "공공데이터 포털에서 제공하는 '전체 요청 주소(Request URL)'입니다.")
         
         self.entry_sample_url = ctk.CTkEntry(sample_frame, placeholder_text="공공데이터 Request URL 전체 주소를 입력하세요...", font=("Malgun Gothic", 12))
-        self.entry_sample_url.grid(row=1, column=2, sticky=tk.EW, padx=5, pady=4)
+        self.entry_sample_url.grid(row=2, column=2, columnspan=2, sticky=tk.EW, padx=5, pady=4)
         
         # 이전 URL 불러오기
         if os.path.exists(".last_url"):
@@ -66,10 +88,10 @@ class UniversalApiApp(ctk.CTk):
                 pass
         
         btn_analyze = ctk.CTkButton(sample_frame, text="URL 분석", width=90, command=self.on_analyze_url, font=("Malgun Gothic", 12, "bold"))
-        btn_analyze.grid(row=1, column=3, padx=5, pady=4)
+        btn_analyze.grid(row=2, column=4, padx=5, pady=4)
         
         btn_clear = ctk.CTkButton(sample_frame, text="초기화", width=75, fg_color="#6B7280", hover_color="#4B5563", command=self.on_clear_url, font=("Malgun Gothic", 12))
-        btn_clear.grid(row=1, column=4, padx=(5, 12), pady=4)
+        btn_clear.grid(row=2, column=5, padx=(5, 12), pady=4)
         
         sample_frame.columnconfigure(2, weight=1)
         
@@ -85,15 +107,24 @@ class UniversalApiApp(ctk.CTk):
         
         lbl_base_help = ctk.CTkLabel(self.api_frame, text="❓", text_color="#3B82F6", cursor="hand2", font=("Malgun Gothic", 13, "bold"))
         lbl_base_help.grid(row=1, column=1, sticky=tk.W, padx=(0, 8))
-        ToolTip(lbl_base_help, "파라미터(조건값)가 붙기 전의 '기본 API 주소(API 엔드포인트)'입니다.\n샘플 URL에서 물음표(?) 바로 앞까지의 주소에 해당합니다.")
+        ToolTip(lbl_base_help, "파라미터(조건값)가 붙기 전의 기본 API 주소입니다.")
 
         self.entry_base_url = ctk.CTkEntry(self.api_frame, placeholder_text="API 엔드포인트 Base URL", font=("Malgun Gothic", 12))
         self.entry_base_url.grid(row=1, column=2, sticky=tk.EW, padx=(5, 12), pady=4, columnspan=2)
         self.api_frame.columnconfigure(2, weight=1)
         
-        # 파라미터 폼이 동적으로 배치될 내부 프레임
+        # 파라미터 폼 내부 프레임
         self.params_container = ctk.CTkFrame(self.api_frame, fg_color="transparent")
         self.params_container.grid(row=2, column=0, columnspan=4, sticky=tk.EW, padx=12, pady=3)
+
+        # 🔄 옵션: 자동 전체 수집 체크박스
+        self.chk_fetch_all = ctk.CTkCheckBox(
+            self.api_frame, 
+            text="🔄 전체 페이지 일괄 수집 (totalCount 자동 감지)", 
+            font=("Malgun Gothic", 11, "bold"),
+            text_color="#3B82F6"
+        )
+        self.chk_fetch_all.grid(row=3, column=0, columnspan=4, sticky=tk.W, padx=12, pady=(2, 6))
         
         # 3. 컨트롤 버튼 및 상태 프레임
         control_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -116,11 +147,10 @@ class UniversalApiApp(ctk.CTk):
         status_label = ctk.CTkLabel(control_frame, textvariable=self.status_var, font=("Malgun Gothic", 11), text_color="#9CA3AF")
         status_label.pack(side=tk.RIGHT, padx=5)
         
-        # 4. 데이터 그리드 프레임 (Treeview + Custom 스타일 적용)
+        # 4. 데이터 그리드 프레임 (Treeview)
         data_frame = ctk.CTkFrame(self, corner_radius=10)
         data_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(8, 5))
         
-        # 스크롤바와 Treeview 레이아웃
         tree_container = ctk.CTkFrame(data_frame, fg_color="transparent")
         tree_container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
@@ -151,7 +181,6 @@ class UniversalApiApp(ctk.CTk):
         self.btn_next_page = ctk.CTkButton(self.page_frame, text="다음 ▶", width=70, height=28, font=("Malgun Gothic", 11, "bold"), command=self.next_page, state="disabled")
         self.btn_next_page.pack(side=tk.LEFT, padx=5)
 
-        # 페이지 당 보기 개수 선택 콤보박스
         lbl_size = ctk.CTkLabel(self.page_frame, text="페이지 당 개수:", font=("Malgun Gothic", 11))
         lbl_size.pack(side=tk.RIGHT, padx=(10, 5))
 
@@ -166,13 +195,51 @@ class UniversalApiApp(ctk.CTk):
         self.cmb_page_size.set("10개씩 보기")
         self.cmb_page_size.pack(side=tk.RIGHT, padx=5)
 
-        # 페이징 상태 변수
         self.current_page = 1
         self.page_size = 10
         self.total_pages = 1
 
-        # 초기 Treeview 스타일 적용
         apply_treeview_style("Dark")
+
+    def refresh_bookmarks_combo(self):
+        history = load_history()
+        names = [item.get("name") for item in history if item.get("name")]
+        if names:
+            self.cmb_bookmark.configure(values=names)
+        else:
+            self.cmb_bookmark.configure(values=["저장된 API 없음"])
+
+    def on_add_bookmark(self):
+        sample_url = self.entry_sample_url.get().strip()
+        base_url = self.entry_base_url.get().strip()
+        if not sample_url or not base_url:
+            messagebox.showwarning("경고", "먼저 URL을 입력하고 분석해 주세요.")
+            return
+            
+        dialog = ctk.CTkInputDialog(text="즐겨찾기에 등록할 별칭을 입력하세요:", title="즐겨찾기 추가")
+        name = dialog.get_input()
+        if name and name.strip():
+            params = {k: entry.get().strip() for k, entry in self.param_entries.items()}
+            ok, msg = save_bookmark(name.strip(), sample_url, base_url, params)
+            if ok:
+                messagebox.showinfo("성공", msg)
+                self.refresh_bookmarks_combo()
+                self.cmb_bookmark.set(name.strip())
+            else:
+                messagebox.showerror("오류", msg)
+
+    def on_bookmark_selected(self, selected_name):
+        history = load_history()
+        for item in history:
+            if item.get("name") == selected_name:
+                self.entry_sample_url.delete(0, tk.END)
+                self.entry_sample_url.insert(0, item.get("sample_url", ""))
+                self.entry_base_url.delete(0, tk.END)
+                self.entry_base_url.insert(0, item.get("base_url", ""))
+                self.render_param_inputs(item.get("params", {}))
+                self.btn_fetch.configure(state="normal")
+                self.status_var.set(f"⭐ 즐겨찾기 '{selected_name}' 로드 완료.")
+                break
 
     def on_page_size_changed(self, choice):
         try:
@@ -204,11 +271,6 @@ class UniversalApiApp(ctk.CTk):
         self.btn_save.configure(state="disabled")
         self.btn_stats.configure(state="disabled")
         self.status_var.set("URL과 파라미터가 초기화되었습니다.")
-        if os.path.exists(".last_url"):
-            try:
-                os.remove(".last_url")
-            except Exception:
-                pass
 
     def on_analyze_url(self):
         sample_url = self.entry_sample_url.get().strip()
@@ -218,13 +280,13 @@ class UniversalApiApp(ctk.CTk):
             return
             
         if not (sample_url.startswith("http://") or sample_url.startswith("https://")):
-            messagebox.showerror("오류", "유효하지 않은 URL 형태입니다.\nhttp:// 또는 https://로 시작하는 올바른 API URL을 입력하세요.")
+            messagebox.showerror("오류", "유효하지 않은 URL 형태입니다.")
             self.btn_fetch.configure(state="disabled")
             return
             
         base_url, params = parse_sample_url(sample_url)
         if not base_url:
-            messagebox.showerror("오류", "URL에서 Base API 주소를 추출하지 못했습니다.")
+            messagebox.showerror("오류", "Base API 주소를 추출하지 못했습니다.")
             self.btn_fetch.configure(state="disabled")
             return
 
@@ -239,7 +301,7 @@ class UniversalApiApp(ctk.CTk):
         self.render_param_inputs(params)
         
         self.btn_fetch.configure(state="normal")
-        self.status_var.set(f"✅ URL 분석 성공: {len(params)}개 파라미터 추출 완료. '데이터 수집' 버튼을 누르세요.")
+        self.status_var.set(f"✅ URL 분석 성공: {len(params)}개 파라미터 추출 완료.")
         
     def render_param_inputs(self, params):
         for child in self.params_container.winfo_children():
@@ -270,22 +332,36 @@ class UniversalApiApp(ctk.CTk):
             return
             
         params = {k: entry.get().strip() for k, entry in self.param_entries.items()}
+        is_fetch_all = bool(self.chk_fetch_all.get())
         
         self.btn_fetch.configure(state="disabled")
-        self.status_var.set("⏳ API 수집 및 데이터 파싱 중...")
+        self.status_var.set("⏳ API 수집 중...")
         
-        thread = threading.Thread(target=self.fetch_and_process_data, args=(base_url, params))
+        thread = threading.Thread(target=self.fetch_and_process_data, args=(base_url, params, is_fetch_all))
         thread.daemon = True
         thread.start()
         
-    def fetch_and_process_data(self, base_url, params):
+    def fetch_and_process_data(self, base_url, params, is_fetch_all):
         raw_text, err = fetch_api_data(base_url, params)
-        
         if err:
             self.after(0, self.show_error, err)
             return
             
-        df, parse_err = flatten_to_dataframe(raw_text)
+        meta = extract_meta_info(raw_text)
+        self.detected_meta = meta
+        
+        if is_fetch_all and meta.get("totalCount") and meta["totalCount"] > 0:
+            num_rows = meta.get("numOfRows") or 10
+            total_cnt = meta["totalCount"]
+            
+            def on_progress(p, total_p):
+                self.after(0, lambda: self.status_var.set(f"🔄 전체 수집 중... ({p}/{total_p} 페이지)"))
+                
+            raw_texts, page_err = fetch_all_pages(base_url, params, total_cnt, num_rows, max_pages=50, progress_callback=on_progress)
+            df, parse_err = flatten_multiple_to_dataframe(raw_texts)
+        else:
+            df, parse_err = flatten_to_dataframe(raw_text)
+            
         if parse_err:
             self.after(0, self.show_error, parse_err)
             return
@@ -320,7 +396,11 @@ class UniversalApiApp(ctk.CTk):
         self.btn_fetch.configure(state="normal")
         self.btn_save.configure(state="normal")
         self.btn_stats.configure(state="normal")
-        self.status_var.set(f"✅ 수집 완료 (총 {len(df)}건, {len(df.columns)}개 열) - 항목 더블클릭 시 전체 필드 확인")
+        
+        meta_msg = ""
+        if self.detected_meta.get("totalCount"):
+            meta_msg = f" (전체 API 건수: {self.detected_meta['totalCount']}건)"
+        self.status_var.set(f"✅ 수집 완료 (총 {len(df)}건 추출){meta_msg}")
 
     def render_page_data(self):
         if self.current_df is None or self.current_df.empty:
@@ -340,15 +420,8 @@ class UniversalApiApp(ctk.CTk):
 
         self.lbl_page_info.configure(text=f"페이지: {self.current_page} / {self.total_pages} (총 {len(self.current_df)}건)")
         
-        if self.current_page <= 1:
-            self.btn_prev_page.configure(state="disabled")
-        else:
-            self.btn_prev_page.configure(state="normal")
-
-        if self.current_page >= self.total_pages:
-            self.btn_next_page.configure(state="disabled")
-        else:
-            self.btn_next_page.configure(state="normal")
+        self.btn_prev_page.configure(state="disabled" if self.current_page <= 1 else "normal")
+        self.btn_next_page.configure(state="disabled" if self.current_page >= self.total_pages else "normal")
 
     def prev_page(self):
         if self.current_page > 1:
@@ -381,6 +454,9 @@ class UniversalApiApp(ctk.CTk):
         if self.current_df is None or self.current_df.empty:
             return
             
+        ColumnMappingPopup(self, list(self.current_df.columns), self.execute_excel_save)
+
+    def execute_excel_save(self, column_mapping):
         import datetime
         import re
         from urllib.parse import urlparse
@@ -411,10 +487,13 @@ class UniversalApiApp(ctk.CTk):
         if file_path:
             try:
                 if file_path.endswith(".csv"):
-                    self.current_df.to_csv(file_path, index=False, encoding='utf-8-sig')
+                    df_to_save = self.current_df.copy()
+                    if column_mapping:
+                        df_to_save.rename(columns=column_mapping, inplace=True)
+                    df_to_save.to_csv(file_path, index=False, encoding='utf-8-sig')
                 else:
-                    self.current_df.to_excel(file_path, index=False)
-                messagebox.showinfo("저장 완료", f"데이터가 성공적으로 저장되었습니다.\n{file_path}")
+                    save_styled_excel(self.current_df, file_path, column_mapping)
+                messagebox.showinfo("저장 완료", f"서식이 적용된 엑셀 데이터가 저장되었습니다.\n{file_path}")
             except Exception as e:
                 messagebox.showerror("저장 오류", f"파일 저장 중 오류가 발생했습니다:\n{e}")
 

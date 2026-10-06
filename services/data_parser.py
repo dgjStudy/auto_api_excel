@@ -76,3 +76,57 @@ def flatten_to_dataframe(raw_text):
             
     except Exception as e:
         return None, f"데이터 파싱 및 평탄화 변환 중 오류 발생:\n{e}"
+
+def extract_meta_info(raw_text):
+    """
+    JSON/XML 데이터에서 totalCount, numOfRows, pageNo 정보 감지
+    """
+    fmt = detect_format(raw_text)
+    meta = {"totalCount": None, "numOfRows": None, "pageNo": None}
+    if fmt == "unknown":
+        return meta
+        
+    try:
+        if fmt == "json":
+            data = json.loads(raw_text)
+        else:
+            data = xmltodict.parse(raw_text)
+            
+        def search_dict(d):
+            if isinstance(d, dict):
+                for k, v in d.items():
+                    key_lower = str(k).lower()
+                    if key_lower in ["totalcount", "total_count", "totalcnt", "totcnt"]:
+                        try: meta["totalCount"] = int(v)
+                        except: pass
+                    elif key_lower in ["numofrows", "num_of_rows", "pagesize", "display", "rowcnt"]:
+                        try: meta["numOfRows"] = int(v)
+                        except: pass
+                    elif key_lower in ["pageno", "page_no", "pageindex", "currpage"]:
+                        try: meta["pageNo"] = int(v)
+                        except: pass
+                    search_dict(v)
+            elif isinstance(d, list):
+                for item in d:
+                    search_dict(item)
+                    
+        search_dict(data)
+    except Exception:
+        pass
+    return meta
+
+def flatten_multiple_to_dataframe(raw_texts):
+    """
+    여러 응답 텍스트 리스트를 파싱하여 하나의 DataFrame으로 결합합니다.
+    """
+    dfs = []
+    for text in raw_texts:
+        df, err = flatten_to_dataframe(text)
+        if df is not None and not df.empty:
+            dfs.append(df)
+            
+    if not dfs:
+        return None, "수집된 데이터에서 유효한 목록을 추출하지 못했습니다."
+        
+    merged_df = pd.concat(dfs, ignore_index=True)
+    return merged_df, None

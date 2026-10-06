@@ -1,5 +1,8 @@
 .env
 .last_url
+.api_history.json
+*.xlsx
+*.csv
 
 # Python cache files
 __pycache__/
@@ -9,8 +12,7 @@ __pycache__/
 # PyInstaller build artifacts
 build/
 dist/
-*.spec
 
 # Python cache & environment
 __pycache__/
-*.pyc
+*.pyc
